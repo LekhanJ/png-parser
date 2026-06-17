@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
@@ -8,31 +9,94 @@ import (
 	"slices"
 )
 
+var pngSignature = []byte{
+	137, 80, 78, 71, 13, 10, 26, 10,
+}
+
+type Chunk struct {
+	Length uint32
+	Type   string
+	Data   []byte
+	CRC    uint32
+}
+
 func main() {
 	data, err := os.ReadFile("frame_5700.png")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	_, err = verifySignature(data[:8])
-	if err != nil {
-		fmt.Println("Error occurred: ", err)
+	if err := verifySignature(data); err != nil {
+		log.Fatal(err)
 	}
 
-	fmt.Println(data)
-}
+	offset := len(pngSignature)
 
-func readUInt32(bytes []byte, offset int) uint32 {
-	return uint32(bytes[offset])<<24 |
-		uint32(bytes[offset+1])<<16 |
-		uint32(bytes[offset+2])<<8 |
-		uint32(bytes[offset+3])
-}
+	for {
+		chunk, nextOffset, err := readChunk(data, offset)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-func verifySignature(data []byte) (bool, error) {
-	signature := []byte{137, 80, 78, 71, 13, 10, 26, 10}
-	if !slices.Equal(data, signature) {
-		return false, errors.New("Invalid Signature")
+		fmt.Printf(
+			"Chunk: %-4s Length: %d\n",
+			chunk.Type,
+			chunk.Length,
+		)
+
+		offset = nextOffset
+
+		if chunk.Type == "IEND" {
+			break
+		}
 	}
-	return true, nil
+}
+
+func verifySignature(data []byte) error {
+	if len(data) < len(pngSignature) {
+		return errors.New("file too small")
+	}
+
+	if !slices.Equal(data[:8], pngSignature) {
+		return errors.New("invalid PNG signature")
+	}
+
+	return nil
+}
+
+func readChunk(data []byte, offset int) (Chunk, int, error) {
+	if offset+8 > len(data) {
+		return Chunk{}, 0, errors.New("unexpected end of file")
+	}
+
+	length := binary.BigEndian.Uint32(
+		data[offset : offset+4],
+	)
+	offset += 4
+
+	chunkType := string(
+		data[offset : offset+4],
+	)
+	offset += 4
+
+	endOfData := offset + int(length)
+
+	if endOfData+4 > len(data) {
+		return Chunk{}, 0, errors.New("truncated chunk")
+	}
+
+	chunkData := data[offset:endOfData]
+	offset = endOfData
+
+	crc := binary.BigEndian.Uint32(
+		data[offset : offset+4],
+	)
+	offset += 4
+
+	return Chunk{
+		Length: length,
+		Type:   chunkType,
+		Data:   chunkData,
+		CRC:    crc,
+	}, offset, nil
 }
