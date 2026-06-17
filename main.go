@@ -18,6 +18,15 @@ func main() {
 	if err != nil {
 		fmt.Println("Error occurred: ", err)
 	}
+
+	fmt.Println(data)
+}
+
+func readUInt32(bytes []byte, offset int) uint32 {
+	return uint32(bytes[offset])<<24 |
+		uint32(bytes[offset+1])<<16 |
+		uint32(bytes[offset+2])<<8 |
+		uint32(bytes[offset+3])
 }
 
 func verifySignature(data []byte) (bool, error) {
